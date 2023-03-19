@@ -16,6 +16,7 @@
 #include <unistd.h>
 #elif defined (_WIN32)
 #include <signal.h>
+#include <Windows.h>
 #endif
 
 #define ANSI_COLOR_RED     "\x1b[31m"
@@ -30,7 +31,7 @@
 // determine number of model parts based on the dimension
 static const std::map<int, int> LLAMA_N_PARTS = {
     { 4096, 1 },
-    { 5120, 2 },
+    { 5120, 1 },
     { 6656, 4 },
     { 8192, 8 },
 };
@@ -798,9 +799,7 @@ int main(int argc, char ** argv) {
 
     params.temp = 0.1f;
     params.top_p = 0.95f;
-//    params.interactive = true;
-//    params.interactive_start = true;
-//    params.use_color = true;
+    params.n_ctx = 2048;
     params.model = "ggml-alpaca-7b-q4.bin";
 
     if (gpt_params_parse(argc, argv, params) == false) {
@@ -814,9 +813,9 @@ int main(int argc, char ** argv) {
     fprintf(stderr, "%s: seed = %d\n", __func__, params.seed);
 
     std::mt19937 rng(params.seed);
-    if (params.prompt.empty()) {
-        params.prompt = gpt_random_prompt(rng);
-    }
+    // if (params.prompt.empty()) {
+    //     params.prompt = gpt_random_prompt(rng);
+    // }
 
 //    params.prompt = R"(// this function checks if the number n is prime
 //bool is_prime(int n) {)";
@@ -851,6 +850,8 @@ int main(int argc, char ** argv) {
 
     std::vector<float> logits;
 
+    // Add a space in front of the first character to match OG llama tokenizer behavior
+    // params.prompt.insert(0, 1, ' ');
     // tokenize the prompt
     std::vector<gpt_vocab::id> embd_inp = ::llama_tokenize(vocab, params.prompt, true);
 
@@ -877,6 +878,12 @@ int main(int argc, char ** argv) {
         sigaction(SIGINT, &sigint_action, NULL);
 #elif defined (_WIN32)
         signal(SIGINT, sigint_handler);
+
+        // Windows console ANSI color fix
+        DWORD mode = 0;
+        HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+        if (hConsole && hConsole != INVALID_HANDLE_VALUE && GetConsoleMode(hConsole, &mode))
+            SetConsoleMode(hConsole, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
 #endif
 
         fprintf(stderr, "%s: interactive mode on.\n", __func__);
@@ -909,11 +916,12 @@ int main(int argc, char ** argv) {
 #if defined (__unix__) || (defined (__APPLE__) && defined (__MACH__)) || defined (_WIN32)
                " - Press Ctrl+C to interject at any time.\n"
 #endif
-               " - Press Return to return control to LLaMa.\n"
+               " - Press Return to return control to LLaMA.\n"
                " - If you want to submit another line, end your input in '\\'.\n");
     }
 
-    int remaining_tokens = params.n_predict;
+    // we may want to slide the input window along with the context, but for now we restrict to the context length
+    int remaining_tokens = model.hparams.n_ctx - embd_inp.size();
     int input_consumed = 0;
     bool input_noecho = false;
 
@@ -1021,7 +1029,7 @@ int main(int argc, char ** argv) {
                     if(params.use_color) printf(ANSI_BOLD ANSI_COLOR_GREEN);
                     if (scanf("%255[^\n]%n%*c", buf, &n_read) <= 0) {
                         // presumable empty line, consume the newline
-                        scanf("%*c");
+                        if (scanf("%*c") <= 0) { /*ignore*/ }
                         n_read=0;
                     }
                     if(params.use_color) printf(ANSI_COLOR_RESET);
@@ -1039,6 +1047,8 @@ int main(int argc, char ** argv) {
                     std::vector<gpt_vocab::id> line_inp = ::llama_tokenize(vocab, buf, false);
                     embd_inp.insert(embd_inp.end(), line_inp.begin(), line_inp.end());
                     remaining_tokens -= line_inp.size();
+
+                    remaining_tokens -= prompt_inp.size() + line_inp.size() + response_inp.size();
 
                     input_noecho = true; // do not echo this again
                 }
