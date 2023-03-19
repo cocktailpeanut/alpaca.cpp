@@ -1048,8 +1048,6 @@ int main(int argc, char ** argv) {
                     embd_inp.insert(embd_inp.end(), line_inp.begin(), line_inp.end());
                     remaining_tokens -= line_inp.size();
 
-                    remaining_tokens -= prompt_inp.size() + line_inp.size() + response_inp.size();
-
                     input_noecho = true; // do not echo this again
                 }
 
