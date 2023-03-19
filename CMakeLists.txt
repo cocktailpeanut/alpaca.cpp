@@ -104,8 +104,8 @@ endif()
 #     set(LLAMA_EXTRA_FLAGS ${LLAMA_EXTRA_FLAGS} -DGGML_PERF)
 # endif()
 
-add_executable(chat
-    chat.cpp
+add_executable(main
+    main.cpp
     utils.cpp
     utils.h)
 
